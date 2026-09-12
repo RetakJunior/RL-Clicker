@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=RL Clicker
+GenericName=Instagram Video Downloader
+Comment=Public Instagram Reels and Video Downloader
+Exec=rl_clicker %U
+Icon=rl_clicker
+Terminal=false
+Categories=Network;AudioVideo;Video;
+Keywords=Instagram;Reels;Video;Downloader;
+StartupWMClass=rl_clicker
+
