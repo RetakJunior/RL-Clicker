@@ -106,14 +106,25 @@ class InstagramResolver implements VideoResolver {
 
         final html = response.body;
 
-
-        // 1. Look for BaseURL MP4 in DASH manifest (e.g. BaseURL>https:\/\/...mp4)
-        final baseURLRegex =
-            RegExp(r'BaseURL>([^<]+?\.mp4[^<]*?)(?:\\u003C|<)');
-        final baseMatch = baseURLRegex.firstMatch(html);
+        // 1. Look for BaseURL MP4 in DASH manifest (both video and audio)
+        final dashRegex =
+            RegExp(r'BaseURL>(https:[^<]+?)(?:\\u003C|\\u003C|<)');
+        final dashMatches = dashRegex.allMatches(html);
         String? videoUrl;
-        if (baseMatch != null) {
-          videoUrl = _cleanJsonEscapedUrl(baseMatch.group(1)!);
+        String? audioUrl;
+
+        for (final m in dashMatches) {
+          final rawUrl = m.group(1)!;
+          final cleanUrl = _cleanJsonEscapedUrl(rawUrl);
+          final start = (m.start - 500).clamp(0, html.length);
+          final ctx = html.substring(start, m.start).toLowerCase();
+
+          if (ctx.contains('audio') &&
+              (ctx.contains('mimetype') || ctx.contains('contenttype'))) {
+            audioUrl ??= cleanUrl;
+          } else {
+            videoUrl ??= cleanUrl;
+          }
         }
 
         // 2. Look for "video_url":"..."
@@ -181,6 +192,7 @@ class InstagramResolver implements VideoResolver {
 
           return ResolvedVideo(
             videoUrl: videoUrl,
+            audioUrl: audioUrl,
             thumbnailUrl: thumbUrl,
             title: title.isEmpty ? 'Instagram Video' : title,
             author: author,

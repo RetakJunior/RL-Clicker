@@ -6,6 +6,7 @@ import '../models/download_task.dart';
 import '../utils/error_utils.dart';
 import '../utils/url_parser.dart';
 import 'downloader_service.dart';
+import 'media_muxer_service.dart';
 import 'notification_service.dart';
 import 'settings_service.dart';
 import 'storage_service.dart';
@@ -242,24 +243,90 @@ class DownloadQueueService extends ChangeNotifier {
       // Step 2: Prepare storage file
       destination = await StorageService.createDestinationFile();
 
-      // Step 3: Stream download
-      await _downloader.download(
-        taskId: taskId,
-        url: resolved.videoUrl,
-        destinationFile: destination,
-        onProgress: (prog) {
-          final curIdx = _queue.indexWhere((t) => t.id == taskId);
-          if (curIdx != -1) {
-            _queue[curIdx] = _queue[curIdx].copyWith(
-              progress: prog.fraction,
-              downloadedBytes: prog.downloadedBytes,
-              totalBytes: prog.totalBytes,
-              speed: prog.speed,
-            );
-            notifyListeners();
+      // Step 3: Stream download (with audio muxing if audio track exists)
+      if (resolved.audioUrl != null && resolved.audioUrl!.isNotEmpty) {
+        final videoTemp = File('${destination.path}.v.tmp');
+        final audioTemp = File('${destination.path}.a.tmp');
+
+        try {
+          // 3a. Download video stream (progress 0% -> 85%)
+          await _downloader.download(
+            taskId: '${taskId}_v',
+            url: resolved.videoUrl,
+            destinationFile: videoTemp,
+            onProgress: (prog) {
+              final curIdx = _queue.indexWhere((t) => t.id == taskId);
+              if (curIdx != -1) {
+                _queue[curIdx] = _queue[curIdx].copyWith(
+                  progress: prog.fraction * 0.85,
+                  downloadedBytes: prog.downloadedBytes,
+                  totalBytes: prog.totalBytes > 0 ? prog.totalBytes : null,
+                  speed: prog.speed,
+                );
+                notifyListeners();
+              }
+            },
+          );
+
+          if (!_activeRunningTaskIds.contains(taskId)) return;
+
+          // 3b. Download audio stream (progress 85% -> 98%)
+          await _downloader.download(
+            taskId: '${taskId}_a',
+            url: resolved.audioUrl!,
+            destinationFile: audioTemp,
+            onProgress: (prog) {
+              final curIdx = _queue.indexWhere((t) => t.id == taskId);
+              if (curIdx != -1) {
+                _queue[curIdx] = _queue[curIdx].copyWith(
+                  progress: 0.85 + (prog.fraction * 0.13),
+                  speed: prog.speed,
+                );
+                notifyListeners();
+              }
+            },
+          );
+
+          if (!_activeRunningTaskIds.contains(taskId)) return;
+
+          // 3c. Merge audio and video streams
+          await MediaMuxerService.mux(
+            videoPath: videoTemp.path,
+            audioPath: audioTemp.path,
+            outputPath: destination.path,
+          );
+        } finally {
+          if (videoTemp.existsSync()) {
+            try {
+              videoTemp.deleteSync();
+            } catch (_) {}
           }
-        },
-      );
+          if (audioTemp.existsSync()) {
+            try {
+              audioTemp.deleteSync();
+            } catch (_) {}
+          }
+        }
+      } else {
+        // Direct single stream download
+        await _downloader.download(
+          taskId: taskId,
+          url: resolved.videoUrl,
+          destinationFile: destination,
+          onProgress: (prog) {
+            final curIdx = _queue.indexWhere((t) => t.id == taskId);
+            if (curIdx != -1) {
+              _queue[curIdx] = _queue[curIdx].copyWith(
+                progress: prog.fraction,
+                downloadedBytes: prog.downloadedBytes,
+                totalBytes: prog.totalBytes,
+                speed: prog.speed,
+              );
+              notifyListeners();
+            }
+          },
+        );
+      }
 
       // Step 4: Complete
       final finalIdx = _queue.indexWhere((t) => t.id == taskId);

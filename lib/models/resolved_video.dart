@@ -1,5 +1,6 @@
 class ResolvedVideo {
   final String videoUrl;
+  final String? audioUrl;
   final String? thumbnailUrl;
   final String title;
   final String? author;
@@ -9,6 +10,7 @@ class ResolvedVideo {
 
   const ResolvedVideo({
     required this.videoUrl,
+    this.audioUrl,
     this.thumbnailUrl,
     required this.title,
     this.author,
@@ -19,6 +21,7 @@ class ResolvedVideo {
 
   Map<String, dynamic> toJson() => {
         'videoUrl': videoUrl,
+        'audioUrl': audioUrl,
         'thumbnailUrl': thumbnailUrl,
         'title': title,
         'author': author,
@@ -29,6 +32,7 @@ class ResolvedVideo {
 
   factory ResolvedVideo.fromJson(Map<String, dynamic> json) => ResolvedVideo(
         videoUrl: json['videoUrl'] as String,
+        audioUrl: json['audioUrl'] as String?,
         thumbnailUrl: json['thumbnailUrl'] as String?,
         title: json['title'] as String,
         author: json['author'] as String?,
