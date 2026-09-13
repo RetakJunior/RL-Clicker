@@ -53,6 +53,7 @@ class NotificationService {
   }) async {
     if (!_initialized) return;
     try {
+      final safeId = (id.abs()) % 100000;
       const androidDetails = AndroidNotificationDetails(
         _channelId,
         _channelName,
@@ -68,7 +69,7 @@ class NotificationService {
       );
 
       await _plugin.show(
-        id,
+        safeId,
         'İndirme Tamamlandı ✓',
         title,
         details,

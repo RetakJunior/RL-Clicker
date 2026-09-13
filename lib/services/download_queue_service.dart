@@ -264,6 +264,9 @@ class DownloadQueueService extends ChangeNotifier {
       // Step 4: Complete
       final finalIdx = _queue.indexWhere((t) => t.id == taskId);
       if (finalIdx != -1) {
+        // Trigger media scanner so Android Gallery / media players detect the file immediately
+        await StorageService.scanFile(destination.path);
+
         final completedTask = _queue[finalIdx].copyWith(
           status: DownloadTaskStatus.completed,
           progress: 1.0,
@@ -275,11 +278,13 @@ class DownloadQueueService extends ChangeNotifier {
         _addToHistory(completedTask);
 
         if (_settings.notificationsEnabled) {
-          NotificationService.showDownloadComplete(
-            id: taskId.hashCode,
-            title: completedTask.title,
-            filePath: destination.path,
-          );
+          try {
+            await NotificationService.showDownloadComplete(
+              id: (taskId.hashCode.abs()) % 100000,
+              title: completedTask.title,
+              filePath: destination.path,
+            );
+          } catch (_) {}
         }
       }
     } catch (e) {

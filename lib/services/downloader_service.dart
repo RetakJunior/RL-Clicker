@@ -39,6 +39,8 @@ class DownloaderService {
       final request = http.Request('GET', Uri.parse(url));
       request.headers['User-Agent'] =
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+      request.headers['Connection'] = 'close';
+      request.headers['Accept-Encoding'] = 'identity';
 
       final streamedResponse = await _client.send(request);
 
@@ -68,17 +70,26 @@ class DownloaderService {
 
           final now = DateTime.now();
           final elapsed = now.difference(lastTime).inMilliseconds;
-          if (elapsed >= 400) {
+          final isComplete = totalBytes > 0 && downloadedBytes >= totalBytes;
+
+          if (elapsed >= 300 || isComplete) {
             final bytesSince = downloadedBytes - lastBytes;
-            currentSpeed = (bytesSince / elapsed) * 1000.0;
+            currentSpeed = elapsed > 0 ? (bytesSince / elapsed) * 1000.0 : 0.0;
             lastTime = now;
             lastBytes = downloadedBytes;
 
             onProgress?.call(DownloadProgress(
               downloadedBytes: downloadedBytes,
-              totalBytes: totalBytes,
+              totalBytes: totalBytes > 0 ? totalBytes : downloadedBytes,
               speed: currentSpeed,
             ));
+          }
+
+          if (isComplete) {
+            subscription?.cancel();
+            if (!streamCompleter.isCompleted) {
+              streamCompleter.complete();
+            }
           }
         },
         onError: (err) {
@@ -96,16 +107,36 @@ class DownloaderService {
 
       _activeSubscriptions[taskId] = subscription;
 
-      await streamCompleter.future;
+      await streamCompleter.future.timeout(
+        const Duration(minutes: 5),
+        onTimeout: () {
+          if (downloadedBytes > 0) {
+            return;
+          }
+          throw TimeoutException('İndirme zaman aşımına uğradı');
+        },
+      );
+
       await sink.flush();
       await sink.close();
       sink = null;
 
-      // Atomic rename from .part to final destination
+      // Rename from .part to final destination with fallback
       if (destinationFile.existsSync()) {
-        destinationFile.deleteSync();
+        try {
+          destinationFile.deleteSync();
+        } catch (_) {}
       }
-      partFile.renameSync(destinationFile.path);
+
+      try {
+        partFile.renameSync(destinationFile.path);
+      } catch (_) {
+        // Fallback for Android filesystems where rename across mounts or FUSE fails
+        partFile.copySync(destinationFile.path);
+        try {
+          partFile.deleteSync();
+        } catch (_) {}
+      }
 
       onProgress?.call(DownloadProgress(
         downloadedBytes: downloadedBytes,
